@@ -42,7 +42,6 @@ namespace storage {
             "   -n --enable-trace      :  E[n]able trace [default:0]\n");
     exit(EXIT_FAILURE);
   }
-
   static struct option opts[] = {
     { "enable-trace", optional_argument, NULL, 'n' },
     { "log-enable", no_argument, NULL, 'a' },
@@ -135,17 +134,20 @@ namespace storage {
 	close(debug_fd);
 
 	/* Emtpy trace buffer */
-	debug_fd = open("/sys/kernel/debug/tracing/current_tracer", O_WRONLY);
-	if(debug_fd != -1){ ret = write(debug_fd, "nop", 3); }
+	debug_fd = open("/sys/kernel/debug/tracing/current_tracer", O_WRONLY | O_TRUNC);
+	if(debug_fd != -1){ ret = write(debug_fd, "nop", 3);}
 	else{ ret = 2; goto fail; }
 	close(debug_fd);
 
-	/* Pick a routine that EXISTS but will never be called, VVV IMP !*/
-	debug_fd = open("/sys/kernel/debug/tracing/set_ftrace_filter", O_WRONLY);
-	if(debug_fd != -1){ ret = write(debug_fd, "pmfs_mount", 10); }
-	else{ ret = 3; goto fail; }
+	debug_fd = open("/sys/kernel/debug/tracing/trace", O_WRONLY | O_TRUNC);
 	close(debug_fd);
 
+	/* Pick a routine that EXISTS but will never be called, VVV IMP !*/
+	debug_fd = open("/sys/kernel/debug/tracing/set_ftrace_filter", O_WRONLY | O_TRUNC);
+	if(debug_fd != -1){ ret = write(debug_fd, "rootfs_mount", 12); printf("%d\n", ret); }
+	else{ ret = 3; goto fail; }
+	close(debug_fd);
+	
 	/* Enable function tracer */
 	debug_fd = open("/sys/kernel/debug/tracing/current_tracer", O_WRONLY);
 	if(debug_fd != -1){ ret = write(debug_fd, "function", 8); }
@@ -276,7 +278,7 @@ fail:
   }
 
 }
-
+ 
 int main(int argc, char **argv) {
   /* Get to DAX FS */
   const char* path = "/dev/shm/zfile";
@@ -290,6 +292,7 @@ int main(int argc, char **argv) {
   pthread_spin_init(&tbuf_lock, PTHREAD_PROCESS_SHARED);
   /* tbuf = (char*)malloc(MAX_TBUF_SZ); To avoid interaction with M's hoard */
   tbuf = (char*)mmap(0, MAX_TBUF_SZ, PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+
   /* MAZ_TBUF_SZ influences how often we compress and hence the overall execution speed. */
   if(!tbuf) {
   	fprintf(m_err, "Failed to allocate trace buffer. Abort now.");
@@ -331,13 +334,19 @@ int main(int argc, char **argv) {
   pthread_spin_destroy(&tbuf_lock);
   #endif
   pthread_spin_destroy(&tot_epoch_lock);
-
+  
   cc.eval(state);
 
+  tracing_on = open("/sys/kernel/debug/tracing/tracing_on", O_WRONLY);
+  if(tracing_on == -1){ exit(6); }
+  write(tracing_on, "0", 1);
+  close(tracing_on);
+  //printf("tracing closed\n"); 
   //std::cerr<<"STATS : "<<std::endl;
   //std::cerr<<"PCOMMIT : "<<storage::pcommit<<std::endl;
   //std::cerr<<"CLFLUSH : "<<storage::clflush<<std::endl;
   std::cerr << "TOTAL EPOCHS : " << get_tot_epoch_count();
 
+  
   return 0;
 }

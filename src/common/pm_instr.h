@@ -327,7 +327,6 @@ extern unsigned long long get_tot_epoch_count(void);
                         sizeof((pm_src)),           	\
                         LOC1,                   	\
                         LOC2);                  	\
-            (pm_src);                               	\
     })     
 
 /* Return the address of persistent variable */

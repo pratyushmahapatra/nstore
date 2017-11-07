@@ -75,6 +75,7 @@ int opt_wal_engine::insert(const statement& st) {
 
   // Activate new record
   pmemalloc_activate(after_rec);
+  PM_READ(after_rec);
   after_rec->persist_data();
 
   tab->pm_data->push_back(after_rec);
@@ -112,6 +113,7 @@ int opt_wal_engine::remove(const statement& st) {
   int num_cols = before_rec->sptr->num_columns;
 
   for (int field_itr = 0; field_itr < num_cols; field_itr++) {
+    PM_READ(num_cols);
     if (before_rec->sptr->columns[field_itr].inlined == 0) {
       void* before_field = before_rec->get_pointer(field_itr);
       commit_free_list.push_back(before_field);
@@ -152,6 +154,7 @@ int opt_wal_engine::update(const statement& st) {
   plist<table_index*>* indices = db->tables->at(st.table_id)->indices;
 
   std::string key_str = sr.serialize(rec_ptr, indices->at(0)->sptr);
+  PM_READ(rec_ptr);
   unsigned long key = hash_fn(key_str);
   record* before_rec;
 
@@ -197,6 +200,7 @@ int opt_wal_engine::update(const statement& st) {
   for (int field_itr : st.field_ids) {
     // Garbage collect previous field
     if (rec_ptr->sptr->columns[field_itr].inlined == 0) {
+      PM_READ(rec_ptr->sptr->columns[field_itr].inlined);
       before_field = before_rec->get_pointer(field_itr);
       commit_free_list.push_back(before_field);
     }

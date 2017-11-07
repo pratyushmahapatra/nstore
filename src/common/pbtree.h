@@ -37,8 +37,8 @@ struct btree_default_set_traits {
   /// If true, the tree will self verify it's invariants after each insert()
   /// or erase(). The header must have been compiled with BTREE_DEBUG defined.
   static const bool selfverify = false;
-
   /// If true, the tree will print out debug information and a tree dump
+
   /// during insert() or erase() operation. The header must have been
   /// compiled with BTREE_DEBUG defined and key_type must be std::ostream
   /// printable.
@@ -1310,6 +1310,8 @@ class btree {
   /// True if a == b ? constructed from key_less(). This requires the <
   /// relation to be a total order, otherwise the B+ tree cannot be sorted.
   inline bool key_equal(const key_type &a, const key_type &b) const {
+    PM_READ(a);
+    PM_READ(b);
     return !m_key_less(a, b) && !m_key_less(b, a);
   }
 
@@ -1351,11 +1353,14 @@ class btree {
   inline inner_node* allocate_inner(unsigned short level) {
     //inner_node *n = new (inner_node_allocator().allocate(1)) inner_node;
     inner_node *n = new ((inner_node*)pmalloc(sizeof(inner_node))) inner_node;
-    if (persist)
+    if (persist) {
       pmemalloc_activate(n);
+      PM_READ(n);
+    }
 
     n->initialize(level);
     PM_EQU((m_stats->innernodes), (m_stats->innernodes+1));
+    PM_READ((m_stats->innernodes));
     return n;
   }
 
@@ -1363,17 +1368,19 @@ class btree {
   /// and value objects
   inline void free_node(node *n) {
     if (n->isleafnode()) {
+      PM_READ(n);
       leaf_node *ln = static_cast<leaf_node*>(n);
       typename leaf_node::alloc_type a(leaf_node_allocator());
       a.destroy(ln);
       a.deallocate(ln, 1);
       PM_EQU((m_stats->leaves), (m_stats->leaves-1));
+      PM_READ((m_stats->leaves));
     } else {
       inner_node *in = static_cast<inner_node*>(n);
       typename inner_node::alloc_type a(inner_node_allocator());
       a.destroy(in);
       a.deallocate(in, 1);
-      PM_EQU((m_stats->innernodes), (m_stats->innernodes-1));
+      PM_EQU((m_stats->innernodes), (m_stats->innernodes-1)); PM_READ((m_stats->innernodes));
     }
   }
 
@@ -1460,6 +1467,7 @@ class btree {
   /// Constructs a read-only constant iterator that points to the first
   /// invalid slot in the last leaf of the B+ tree.
   inline const_iterator end() const {
+    PM_READ(m_tailleaf);
     return const_iterator(m_tailleaf, m_tailleaf ? m_tailleaf->slotuse : 0);
   }
 
@@ -1528,8 +1536,10 @@ class btree {
     } else  // for nodes <= binsearch_threshold do linear search.
     {
       int lo = 0;
-      while (lo < n->slotuse && key_less(n->slotkey[lo], key))
+      while (lo < n->slotuse && key_less(n->slotkey[lo], key)) {
+	PM_READ(n->slotuse);
         ++lo;
+      }
       return lo;
     }
   }
@@ -1613,10 +1623,12 @@ class btree {
       return false;
 
     while (!n->isleafnode()) {
+      PM_READ(n);
       const inner_node *inner = static_cast<const inner_node*>(n);
       int slot = find_lower(inner, key);
 
       n = inner->childid[slot];
+      PM_READ(inner->childid[slot]);
     }
 
     const leaf_node *leaf = static_cast<const leaf_node*>(n);
@@ -1633,10 +1645,12 @@ class btree {
       return end();
 
     while (!n->isleafnode()) {
+      PM_READ(n->isleafnode());
       const inner_node *inner = static_cast<const inner_node*>(n);
       int slot = find_lower(inner, key);
 
       n = inner->childid[slot];
+      PM_READ(inner->childid[slot]);
     }
 
     leaf_node *leaf = static_cast<leaf_node*>(n);
@@ -1655,15 +1669,18 @@ class btree {
       return end();
 
     while (!n->isleafnode()) {
+      PM_READ(n);
       const inner_node *inner = static_cast<const inner_node*>(n);
       int slot = find_lower(inner, key);
 
       n = inner->childid[slot];
+      PM_READ(inner->childid[slot]);
     }
 
     const leaf_node *leaf = static_cast<const leaf_node*>(n);
 
     int slot = find_lower(leaf, key);
+    PM_READ(leaf->slotuse);
     return
         (slot < leaf->slotuse && key_equal(key, leaf->slotkey[slot])) ?
             const_iterator(leaf, slot) : end();
@@ -2008,6 +2025,7 @@ class btree {
 
     if ((*m_root) == NULL) {
       PM_EQU((m_tailleaf), (allocate_leaf()));PM_EQU((m_headleaf), (m_tailleaf));PM_EQU(((*m_root)), (m_headleaf));
+      PM_READ(m_tailleaf); PM_READ(m_headleaf);
     }
 
     std::pair<iterator, bool> r = insert_descend((*m_root), key, value, &newkey,
@@ -2016,18 +2034,24 @@ class btree {
     if (newchild) {
       inner_node *newroot = allocate_inner((*m_root)->level + 1);
       PM_EQU((newroot->slotkey[0]), (newkey));
+      PM_READ(newkey);
 
       PM_EQU((newroot->childid[0]), ((*m_root)));
+      PM_READ((*m_root));
       PM_EQU((newroot->childid[1]), (newchild));
+      PM_READ(newchild);
 
       PM_EQU((newroot->slotuse), (1));
 
       PM_EQU(((*m_root)), (newroot));
+      PM_READ(newroot);
     }
 
     // increment itemcount if the item was inserted
-    if (r.second)
+    if (r.second) {
       PM_EQU((m_stats->itemcount), (m_stats->itemcount+1));
+      PM_READ(m_stats->itemcount);
+    }
 
 #ifdef BTREE_DEBUG
     if (debug) print(std::cerr);
@@ -2053,6 +2077,7 @@ class btree {
                                            key_type* splitkey,
                                            node** splitnode) {
     if (!n->isleafnode()) {
+      PM_READ(n);
       inner_node *inner = static_cast<inner_node*>(n);
 
       key_type newkey = key_type();
@@ -2064,6 +2089,7 @@ class btree {
 
       std::pair<iterator, bool> r = insert_descend(inner->childid[slot], key,
                                                    value, &newkey, &newchild);
+      PM_READ(inner->childid[slot]);
 
       if (newchild) {
         BTREE_PRINT(
@@ -2098,9 +2124,9 @@ class btree {
             inner_node *splitinner = static_cast<inner_node*>(*splitnode);
 
             // move the split key and it's datum into the left node
-            PM_EQU((inner->slotkey[inner->slotuse]), (*splitkey));
-            PM_EQU((inner->childid[inner->slotuse + 1]), (splitinner->childid[0]));
-            PM_EQU((inner->slotuse), (inner->slotuse+1));
+            PM_EQU((inner->slotkey[inner->slotuse]), (*splitkey)); PM_READ((*splitkey));
+            PM_EQU((inner->childid[inner->slotuse + 1]), (splitinner->childid[0])); PM_READ((splitinner->childid[0]));
+            PM_EQU((inner->slotuse), (inner->slotuse+1)); PM_READ((inner->slotuse));
 
             // set new split key and move corresponding datum into right node
             PM_EQU((splitinner->childid[0]), (newchild));
@@ -2133,6 +2159,7 @@ class btree {
         PM_EQU((inner->slotkey[slot]), (newkey));
         PM_EQU((inner->childid[slot + 1]), (newchild));
         PM_EQU((inner->slotuse), (inner->slotuse+1));
+	PM_READ((inner->slotuse));
       }
 
       return r;
@@ -2152,6 +2179,7 @@ class btree {
 
         // check if insert slot is in the split sibling node
         if (slot >= leaf->slotuse) {
+	  PM_READ(leaf->slotuse);
           slot -= leaf->slotuse;
           leaf = static_cast<leaf_node*>(*splitnode);
         }
@@ -2183,11 +2211,14 @@ class btree {
       */
 
       PM_EQU((leaf->slotkey[slot]), (key));
+      PM_READ(key);
       if (!used_as_set)
         PM_EQU((leaf->slotdata[slot]), (value));
       PM_EQU((leaf->slotuse), (leaf->slotuse+1));
+      PM_READ((leaf->slotuse));
 
       if (splitnode && leaf != *splitnode && slot == leaf->slotuse - 1) {
+      	PM_READ((leaf->slotuse));
         // special case: the node was split, and the insert is at the
         // last slot of the old node. then the splitkey must be
         // updated.
@@ -2212,11 +2243,14 @@ class btree {
     PM_EQU((newleaf->slotuse), (leaf->slotuse - mid));
 
     PM_EQU((newleaf->nextleaf), (leaf->nextleaf));
+    PM_READ(leaf->nextleaf);
     if (newleaf->nextleaf == NULL) {
       BTREE_ASSERT(leaf == m_tailleaf);
       PM_EQU((m_tailleaf), (newleaf));
+      PM_READ(newleaf);
     } else {
       PM_EQU((newleaf->nextleaf->prevleaf), (newleaf));
+      PM_READ(newleaf);
     }
 
     PM_RNGCPY((newleaf->slotkey), (leaf->slotuse - mid + 1));
@@ -2225,10 +2259,14 @@ class btree {
     data_copy(leaf->slotdata + mid, leaf->slotdata + leaf->slotuse, newleaf->slotdata);
 
     PM_EQU((leaf->slotuse), (mid));
+    PM_READ(mid);
     PM_EQU((leaf->nextleaf), (newleaf));
+    PM_READ(newleaf);
     PM_EQU((newleaf->prevleaf), (leaf));
+    PM_READ(leaf);
 
     *_newkey = leaf->slotkey[leaf->slotuse - 1];
+    PM_READ(leaf->slotuse);
     *_newleaf = newleaf;
   }
 
@@ -2257,6 +2295,7 @@ class btree {
     inner_node *newinner = allocate_inner(inner->level);
 
     PM_EQU((newinner->slotuse), (inner->slotuse - (mid + 1)));
+    PM_READ(inner->slotuse);
 
     PM_RNGCPY((newinner->slotkey), (inner->slotuse - mid));
     std::copy(inner->slotkey + mid + 1, inner->slotkey + inner->slotuse, newinner->slotkey);
@@ -2264,6 +2303,7 @@ class btree {
     std::copy(inner->childid + mid + 1, inner->childid + inner->slotuse + 1, newinner->childid);
 
     PM_EQU((inner->slotuse), (mid));
+    PM_READ(mid);
 
     *_newkey = inner->slotkey[mid];
     *_newinner = newinner;
@@ -2482,8 +2522,10 @@ class btree {
     NULL,
                                         0);
 
-    if (!result.has(btree_not_found))
+    if (!result.has(btree_not_found)) {
       PM_EQU((m_stats->itemcount), (m_stats->itemcount-1));
+      PM_READ((m_stats->itemcount));
+    }
 
 #ifdef BTREE_DEBUG
     if (debug) print(std::cerr);
@@ -2566,6 +2608,7 @@ class btree {
       int slot = find_lower(leaf, key);
 
       if (slot >= leaf->slotuse || !key_equal(key, leaf->slotkey[slot])) {
+	PM_READ(leaf->slotuse);
         BTREE_PRINT("Could not find key " << key << " to erase.");
 
         return btree_not_found;
@@ -2579,6 +2622,7 @@ class btree {
       data_copy(leaf->slotdata + slot + 1, leaf->slotdata + leaf->slotuse, leaf->slotdata + slot);
 
       PM_EQU((leaf->slotuse), (leaf->slotuse-1));
+      PM_READ(leaf->slotuse);
 
       result_t myres = btree_ok;
 
@@ -3231,7 +3275,9 @@ class btree {
 
     // copy the parent's decision slotkey and childid to the first new key on the left
     PM_EQU((left->slotkey[left->slotuse]), (parent->slotkey[parentslot]));
+    PM_READ((parent->slotkey[parentslot]));
     PM_EQU((left->slotuse), (left->slotuse+1));
+    PM_READ((left->slotuse));
 
     // copy the other items from the right node to the last slots in the left node.
 

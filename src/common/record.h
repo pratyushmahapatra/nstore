@@ -18,8 +18,10 @@ class record {
       this->is_persistent = is_persistent;
       PM_EQU((sptr), (_sptr));
       PM_EQU((data_len), (_sptr->ser_len));
-	if(this->is_persistent)
+	if(this->is_persistent) {
 		PM_EQU((data), ((char*) pmalloc(data_len*sizeof(char)))); /* sizeof(char) = 1 byte */
+		PM_READ(data_len);
+	}
 	else
 		data = new char[data_len];
   }
@@ -32,7 +34,9 @@ class record {
   void clear_data() {
     unsigned int field_itr;
     for (field_itr = 0; field_itr < sptr->num_columns; field_itr++) {
+      PM_READ(sptr->num_columns);
       if (sptr->columns[field_itr].inlined == 0) {
+	PM_READ(sptr->columns[field_itr].inlined);
         char* ptr = (char*) get_pointer(field_itr);
         delete ptr;
       }
@@ -60,18 +64,23 @@ class record {
       case field_type::INTEGER:
         int ival;
         memcpy(&ival, &(data[offset]), sizeof(int));
+	PM_READ_P(data[offset]);
         field = std::to_string(ival);
         break;
 
       case field_type::DOUBLE:
         double dval;
         memcpy(&dval, &(data[offset]), sizeof(double));
+	PM_READ_P(data[offset]);
+        field = std::to_string(ival);
         field = std::to_string(dval);
         break;
 
       case field_type::VARCHAR: {
         char* vcval = NULL;
         memcpy(&vcval, &(data[offset]), sizeof(void*));
+	PM_READ_P(data[offset]);
+        field = std::to_string(ival);
         if (vcval != NULL) {
           field = std::string(vcval);
         }
@@ -90,6 +99,7 @@ class record {
   void* get_pointer(const int field_id) {
     void* vcval = NULL;
     memcpy(&vcval, &(data[sptr->columns[field_id].offset]), sizeof(void*));
+    PM_READ_P(data[sptr->columns[field_id].offset]);
     return vcval;
   }
 
@@ -104,6 +114,7 @@ class record {
       case field_type::VARCHAR:
 	// data copy and not pointer copy. Going by the variable len field.
 	PM_DMEMCPY((&(data[offset])), (&(rec_ptr->data[offset])), (len));
+	PM_READ_P((rec_ptr->data[offset]));
         break;
 
       default:
@@ -120,6 +131,7 @@ class record {
   void set_double(const int field_id, double dval) {
     //assert(sptr->columns[field_id].type == field_type::DOUBLE);
     PM_DMEMCPY((&(data[sptr->columns[field_id].offset])), (&dval), (sizeof(double)));
+    PM_READ_P(dval);
   }
 
   void set_varchar(const int field_id, std::string vc_str) {
@@ -151,12 +163,14 @@ class record {
     if (!is_persistent)
 	die();
     pmemalloc_activate(data);
+    PM_READ(data);
     unsigned int field_itr;
     for (field_itr = 0; field_itr < sptr->num_columns; field_itr++) {
       if (sptr->columns[field_itr].inlined == 0) {
         void* ptr = get_pointer(field_itr);
         //printf("persist data :: %p \n", ptr);
         pmemalloc_activate(ptr);
+	PM_READ(ptr);
       }
     }
   }

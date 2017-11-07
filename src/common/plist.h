@@ -59,8 +59,10 @@ class plist {
     PM_EQU(((*head)), (np));
     PM_EQU(((*tail)), (np));
 
-    if (activate)
+    if (activate) {
       pmemalloc_activate(np);
+      PM_READ(np);
+    }
 
     PM_EQU((_size), (_size+1));
     return np;
@@ -70,6 +72,7 @@ class plist {
     off_t index = -1;
 
     if ((*head) == NULL) {
+      PM_READ((*head));
       if (init(val) != NULL)
         index = 0;
       return index;
@@ -83,16 +86,22 @@ class plist {
     PM_EQU((np->next), (NULL));
 
     tailp = (*tail);
+    PM_READ((*tail));
     PM_EQU(((*tail)), (np));
+    PM_READ(np);
 
-    if (activate)
+    if (activate) {
       pmemalloc_activate(np);
+      PM_READ(np);
+    }
 
     PM_EQU((tailp->next), (np));
     pmem_persist(&tailp->next, sizeof(*np), 0);
 
     index = _size;
+    PM_READ(_size);
     PM_EQU((_size), (_size+1));
+    PM_READ(_size);
     return index;
   }
 
@@ -120,6 +129,7 @@ class plist {
 
     while (np != NULL) {
       if (np->val == val) {
+	PM_READ(np->val);
         found = true;
         break;
       } else {
@@ -162,23 +172,27 @@ class plist {
     }
 
     np = find(val, &prev);
+    PM_READ(np->val);
 
     if (np == NULL) {
       return -1;
     } else {
       if (prev != NULL) {
         PM_EQU((prev->next), (np->next));
+	PM_READ(np->next);
         pmem_persist(&prev->next, sizeof(*np), 0);
       }
 
       // Update head and tail
       if (np == (*head)) {
         PM_EQU(((*head)), (np->next));
+	PM_READ(np->next);
       } else if (np == (*tail)) {
         PM_EQU(((*tail)), (prev));
       }
 
       PM_EQU((_size), (_size-1));
+      PM_READ(_size);
     }
 
     delete np;
@@ -208,7 +222,9 @@ class plist {
 
     while (np) {
       prev = np;
+      PM_READ(np);
       PM_EQU((np), (np->next));
+      PM_READ(np->next);
       delete prev;
     }
 

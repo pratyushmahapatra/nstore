@@ -15,6 +15,7 @@ class serializer {
       return "";
 
     char* data = rptr->data;
+    PM_READ(rptr->data);
     unsigned int num_columns = sptr->num_columns;
 
     output.clear();
@@ -32,18 +33,21 @@ class serializer {
           case field_type::INTEGER:
             int ival;
             memcpy(&ival, &(data[offset]), sizeof(int));
+	    PM_READ_P((data[offset]));
             output << ival;
             break;
 
           case field_type::DOUBLE:
             double dval;
             memcpy(&dval, &(data[offset]), sizeof(double));
+	    PM_READ_P((data[offset]));
             output << dval;
             break;
 
           case field_type::VARCHAR: {
             char* vcval = NULL;
             memcpy(&vcval, &(data[offset]), sizeof(char*));
+	    PM_READ_P((data[offset]));
             if (vcval != NULL) {
               output << vcval;
             }

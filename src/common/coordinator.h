@@ -15,6 +15,15 @@
 #include "ycsb_benchmark.h"
 #include "tpcc_benchmark.h"
 
+void marker_start_counting()
+{
+    asm volatile(".byte 0xbb,0x11,0x22,0x33,0x44,0x64,0x67,0x90" : : : "ebx");
+}
+void marker_stop_counting()
+{
+    asm volatile(".byte 0xbb,0x11,0x22,0x33,0x55,0x64,0x67,0x90" : : : "ebx");
+}
+
 namespace storage {
 
 class coordinator {
@@ -81,8 +90,10 @@ class coordinator {
         if(ret == 1) {
             printf("Tracing Enabled\n");
         }
+	close(tracing_on);
 	    mtm_enable_trace = conf.is_trace_enabled;
     }
+    marker_start_counting();
     std::cerr << "EXECUTING..." << std::endl;
 
     for (unsigned int i = 0; i < num_executors; i++)
@@ -99,7 +110,7 @@ class coordinator {
     }
     std::cerr << "max dur :" << max_dur << std::endl;
     display_stats(conf.etype, max_dur, num_txns);
-
+    marker_stop_counting();
   }
 
   void recover(const config conf) {
